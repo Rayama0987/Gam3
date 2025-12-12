@@ -350,12 +350,11 @@ function draw() {
 function collectAndSendInput() {
     if (!gameRunning || isUpgrading || localPlayerId === undefined) return;
     
-    const playerKeys = STANDARD_KEYS; 
-    
+    // 修正箇所: A/Dキーに加え、矢印キー (ArrowLeft/ArrowRight) もチェック
     let inputState = {
-        left: keys[playerKeys.LEFT] || false,
-        right: keys[playerKeys.RIGHT] || false,
-        shoot: keys[playerKeys.SHOOT] || false
+        left: keys['KeyA'] || keys['ArrowLeft'] || false,
+        right: keys['KeyD'] || keys['ArrowRight'] || false,
+        shoot: keys['Space'] || false
     };
     
     // モバイルタッチ操作
@@ -583,7 +582,6 @@ window.applyUpgrade = function(type) {
 // --- ロビー/モード管理関数 ---
 
 window.startSinglePlayer = function() {
-    // ★修正: マルチプレイ関連の状態をすべてリセットし、シングルプレイに設定
     isMultiplayer = false;
     Networking.isConnected = false; 
     Networking.isHost = false;
