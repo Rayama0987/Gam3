@@ -69,12 +69,10 @@ document.addEventListener('keyup', (e) => {
     keys[e.code] = false;
 });
 
-
 // --- ユーティリティ関数 ---
 function distance(x1, y1, x2, y2) {
     return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
 }
-
 
 // --- ネットワーク層のシミュレーション ---
 const Networking = {
@@ -95,6 +93,7 @@ const Networking = {
         
         // 実際はWebRTCやWebSocketで送る
         setTimeout(() => {
+            // 強化イベントも入力として送信される
             this.inputQueue.push({ playerId: localPlayerId, input: input });
         }, this.latency / 2); // 半分のレイテンシでホストのキューに到達
     },
@@ -156,7 +155,7 @@ const Networking = {
                 // 入力パケットをそのまま適用
                 player.input = packet.input;
                 
-                // 強化イベントも処理（簡略化）
+                // 強化イベントも処理
                 if (packet.input.upgraded) {
                     serverApplyUpgrade(player, packet.input.type);
                 }
@@ -242,6 +241,7 @@ const Networking = {
 
         // 3. 状態を全クライアントにブロードキャスト（シミュレーション）
         gameState.players.forEach((p) => {
+             // 実際には全接続クライアントに送る
              Networking.receiveState(JSON.parse(JSON.stringify(gameState)));
         });
     }
@@ -249,6 +249,7 @@ const Networking = {
 
 // --- ホスト/サーバー側のゲームロジック (シングルプレイでも使用) ---
 function serverAutoAim(player, bullet, deltaTime) {
+    // ... (前バージョンのロジックを流用) ...
     const aimStrength = player.upgrades.autoAim.baseAimStrength * player.upgrades.autoAim.level;
     const nearestEnemy = gameState.enemies.reduce((nearest, enemy) => {
         const d = distance(player.x, player.y, enemy.x, enemy.y);
@@ -289,6 +290,7 @@ function serverCheckBulletBounds(bullet) {
 }
 
 function serverShoot(player) {
+    // ... (前バージョンのロジックを流用) ...
     const { upgrades } = player;
     const count = upgrades.bulletCount.level;
     const currentSpeed = upgrades.speed.baseSpeed * upgrades.speed.level;
@@ -310,7 +312,7 @@ function serverShoot(player) {
             velY: -currentSpeed, 
             isBounce: isBounce,
             isAim: isAutoAim,
-            ownerId: player.id 
+            ownerId: player.id // 誰の弾丸か記録
         });
     }
 }
@@ -324,7 +326,7 @@ function serverCheckCollisions() {
                 if (distance(bullet.x, bullet.y, enemy.x, enemy.y) < enemy.size / 2 + bullet.radius) {
                     enemy.health -= bullet.damage;
                     bullet.hit = true;
-                    enemy.lastHitBulletOwnerId = player.id; 
+                    enemy.lastHitBulletOwnerId = player.id; // 最後にヒットさせたプレイヤーを記録
                 }
             });
         });
@@ -335,7 +337,7 @@ function serverCheckCollisions() {
             const killerId = enemy.lastHitBulletOwnerId;
             if (killerId !== undefined) {
                 gameState.players.forEach(p => {
-                    let scoreMultiplier = (p.id === killerId) ? 1.0 : 0.5; 
+                    let scoreMultiplier = (p.id === killerId) ? 1.0 : 0.5; // 協力スコア配分
                     const earnedScore = finalEnemyValue * scoreMultiplier;
                     p.score += earnedScore;
                     p.totalScoreEarned += earnedScore; 
@@ -376,7 +378,7 @@ function serverApplyUpgrade(player, type) {
             , { health: maxHealth, id: undefined }); 
 
         if (targetPlayer.id !== undefined) {
-             targetPlayer.health++;
+             gameState.players.find(p => p.id === targetPlayer.id).health++;
         }
     } else {
         const upgrade = player.upgrades[type];
@@ -384,7 +386,6 @@ function serverApplyUpgrade(player, type) {
             upgrade.level++;
         }
     }
-    // 強化したプレイヤーは、スコアが足りていれば再度強化可能になる（クライアント側で画面が更新される）
 }
 
 
@@ -394,23 +395,26 @@ function draw() {
     CTX.fillStyle = '#000';
     CTX.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
+    // プレイヤーの描画 (ローカル予測位置またはサーバー位置を使用)
     gameState.players.forEach(player => {
         if (player.health <= 0) return;
         
-        // 描画には、ホストからの最新の状態を使う
         CTX.fillStyle = player.color;
+        // 描画には、プレイヤーの現在のx座標 (予測/補間された値) を使用
         CTX.fillRect(player.x - player.size / 2, player.y - player.size / 2, player.size, player.size);
     });
 
+    // 弾丸の描画
     gameState.players.forEach(player => {
         player.bullets.forEach(bullet => {
-            CTX.fillStyle = player.color; 
+            CTX.fillStyle = player.color; // 弾丸の色をプレイヤーに合わせる
             CTX.beginPath();
             CTX.arc(bullet.x, bullet.y, bullet.radius, 0, Math.PI * 2);
             CTX.fill();
         });
     });
 
+    // 敵の描画
     gameState.enemies.forEach(enemy => {
         CTX.fillStyle = 'red';
         CTX.fillRect(enemy.x - enemy.size / 2, enemy.y - enemy.size / 2, enemy.size, enemy.size);
@@ -486,7 +490,7 @@ function localGameTick(deltaTime) {
     // シングルプレイでは、localUpdateMovementで予測した位置をそのまま利用
     player.x = player.predictedX;
 
-    // 2. 発射
+    // 2. 発射 (ローカルで処理)
     const now = Date.now();
     const fireInterval = player.upgrades.fireRate.baseInterval / player.upgrades.fireRate.level; 
     
@@ -598,6 +602,7 @@ function enterUpgradeScreen(playerId) {
         }
     }
     
+    // マルチプレイ専用の体力回復ボタン
     if (isMultiplayer) {
         const recoverButton = document.createElement('button');
         recoverButton.className = 'upgrade-button';
