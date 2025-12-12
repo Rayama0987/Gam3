@@ -149,15 +149,29 @@
             <p>アップグレードを選択してください:</p>
 
             <div id="upgrade-buttons-container">
-                <button class="upgrade-button" onclick="window.applyUpgrade('damage')">ダメージアップ (Lv: <span id="lv-damage">1</span>)</button>
-                <button class="upgrade-button" onclick="window.applyUpgrade('speed')">弾丸速度アップ (Lv: <span id="lv-speed">1</span>)</button>
-                <button class="upgrade-button" onclick="window.applyUpgrade('radius')">当たり判定拡大 (Lv: <span id="lv-radius">1</span>)</button>
+                <button class="upgrade-button" onclick="window.applyUpgrade('damage')">
+                    ダメージアップ (現在のLv: <span id="lv-damage">1</span>)
+                </button>
+                <button class="upgrade-button" onclick="window.applyUpgrade('speed')">
+                    弾丸速度上昇 (現在のLv: <span id="lv-speed">1</span>)
+                </button>
+                <button class="upgrade-button" onclick="window.applyUpgrade('radius')">
+                    当たり判定拡大 (現在のLv: <span id="lv-radius">1</span>)
+                </button>
                 <br>
-                <button class="upgrade-button" onclick="window.applyUpgrade('fireRate')">連射速度上昇 (Lv: <span id="lv-fireRate">1</span>)</button>
-                <button class="upgrade-button" onclick="window.applyUpgrade('bulletCount')">同時弾数上昇 (Lv: <span id="lv-bulletCount">1</span>)</button>
-                <button class="upgrade-button" onclick="window.applyUpgrade('bounce')">バウンド弾 (Lv: <span id="lv-bounce">0</span>)</button>
+                <button class="upgrade-button" onclick="window.applyUpgrade('fireRate')">
+                    連射速度上昇 (現在のLv: <span id="lv-fireRate">1</span>)
+                </button>
+                <button class="upgrade-button" onclick="window.applyUpgrade('bulletCount')">
+                    一発の弾数上昇 (現在のLv: <span id="lv-bulletCount">1</span>)
+                </button>
+                <button class="upgrade-button" onclick="window.applyUpgrade('bounce')">
+                    バウンド確率上昇 (現在のLv: <span id="lv-bounce">0</span>)
+                </button>
                 <br>
-                <button class="upgrade-button" onclick="window.applyUpgrade('autoAim')">オートエイム (Lv: <span id="lv-autoAim">0</span>)</button>
+                <button class="upgrade-button" onclick="window.applyUpgrade('autoAim')">
+                    オートエイム (現在のLv: <span id="lv-autoAim">0</span>)
+                </button>
             </div>
             
             <p id="upgrade-message" style="margin-top: 20px; color: yellow;"></p>
@@ -171,8 +185,8 @@
     </div>
 
     <div id="hud">
-        <span>体力: <span id="health-display">5</span></span>
         <span>スコア: <span id="score-display">0</span></span>
+        <span>体力: <span id="health-display">5</span></span>
         <button onclick="window.exitGame()" style="background-color: #f44336; color: white; padding: 5px 10px; border: none; border-radius: 5px; cursor: pointer;">
             終了
         </button>
