@@ -7,13 +7,11 @@ const GAME_HEIGHT = CANVAS.height;
 const BASE_SCORE_TO_UPGRADE = 10; 
 const ENEMY_HEALTH = 10;
 const ENEMY_VALUE = 3;
-const BASE_ENEMY_SIZE = 30;
-const MOBILE_ENEMY_SCALE = 1.5;
+const PLAYER_SPEED_SCALE = 5; // プレイヤーの基本移動速度
 
 // --- グローバル状態 ---
 let gameRunning = false;
 let isUpgrading = false;
-let isMobileSession = false; 
 let isMultiplayer = false; 
 let lastTime = 0; 
 let localPlayerId = 0; 
@@ -25,10 +23,8 @@ let gameState = {
     enemiesKilled: 0
 };
 
-// --- プレイヤーと操作キー (1端末につき1プレイヤー) ---
+// --- プレイヤーと操作キー ---
 const PLAYER_COLORS = ['lime', 'cyan', 'red', 'yellow']; 
-const STANDARD_KEYS = { LEFT: 'KeyA', RIGHT: 'KeyD', SHOOT: 'Space' }; 
-
 let keys = {}; // 現在押されているキー
 
 // プレイヤーの基本構造 
@@ -40,7 +36,7 @@ function createPlayer(id, color) {
         x: GAME_WIDTH / (PLAYER_COLORS.length + 1) * (id + 1), 
         y: GAME_HEIGHT - 50,
         size: 20,
-        speed: 5,
+        speed: PLAYER_SPEED_SCALE,
         health: 5,
         score: 0, 
         totalScoreEarned: 0, 
@@ -55,15 +51,17 @@ function createPlayer(id, color) {
             radius: { level: 1, baseRadius: 4, cost: baseCost, label: "当たり判定拡大" },
             autoAim: { level: 0, baseAimStrength: 0.005, cost: baseCost, label: "オートエイム" }
         },
-        input: { left: false, right: false, shoot: false } 
+        // 入力状態と、クライアント予測用の状態を分離
+        input: { left: false, right: false, shoot: false },
+        predictedX: GAME_WIDTH / (PLAYER_COLORS.length + 1) * (id + 1) // ★自己予測用
     };
 }
 
 
-// --- イベントリスナー (キー入力、タッチ入力) ---
+// --- イベントリスナー (キー入力) ---
 document.addEventListener('keydown', (e) => {
     keys[e.code] = true;
-    if (e.code === STANDARD_KEYS.SHOOT) {
+    if (e.code === 'Space') {
         e.preventDefault(); 
     }
 });
@@ -71,44 +69,10 @@ document.addEventListener('keyup', (e) => {
     keys[e.code] = false;
 });
 
-let isTouching = false; 
-let touchX = GAME_WIDTH / 2; 
-
-CANVAS.addEventListener('touchstart', (e) => {
-    e.preventDefault(); 
-    isMobileSession = true; 
-    isTouching = true;
-    if (e.touches.length > 0) {
-        const rect = CANVAS.getBoundingClientRect();
-        const scaleX = CANVAS.width / rect.width; 
-        touchX = (e.touches[0].clientX - rect.left) * scaleX;
-    }
-}, { passive: false });
-
-CANVAS.addEventListener('touchmove', (e) => {
-    e.preventDefault();
-    if (e.touches.length > 0) {
-        const rect = CANVAS.getBoundingClientRect();
-        const scaleX = CANVAS.width / rect.width;
-        touchX = (e.touches[0].clientX - rect.left) * scaleX;
-    }
-}, { passive: false });
-
-CANVAS.addEventListener('touchend', (e) => {
-    isTouching = false;
-}, { passive: false });
-
 
 // --- ユーティリティ関数 ---
 function distance(x1, y1, x2, y2) {
     return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
-}
-function getTotalUpgradeLevel(player) {
-    let total = 0;
-    for (const key in player.upgrades) {
-        total += player.upgrades[key].level || 0;
-    }
-    return total - 5; 
 }
 
 
@@ -116,37 +80,70 @@ function getTotalUpgradeLevel(player) {
 const Networking = {
     isConnected: false,
     isHost: false,
-    latency: 50, 
+    latency: 100, // 模擬的な遅延 (ms)
     inputQueue: [], 
-    serverStateQueue: [],
-
+    
     connect: function(isHost) {
         this.isConnected = true;
         this.isHost = isHost;
         console.log(`[NETWORKING] ${isHost ? 'ホスト' : 'クライアント'}として接続をシミュレート...`);
     },
 
+    // クライアント -> ホストへ入力送信
     sendInput: function(input) {
         if (!this.isConnected) return;
         
-        if (this.isHost) {
+        // 実際はWebRTCやWebSocketで送る
+        setTimeout(() => {
             this.inputQueue.push({ playerId: localPlayerId, input: input });
-        } else {
-             // 実際のオンラインではサーバーに送る
-        }
+        }, this.latency / 2); // 半分のレイテンシでホストのキューに到達
     },
 
+    // ホスト -> クライアントへ状態送信
     receiveState: function(state) {
+        if (!this.isConnected) return;
+        
         setTimeout(() => {
-            gameState = state;
+            // クライアント側で新しい状態を適用
+            state.players.forEach(serverPlayer => {
+                const localPlayer = gameState.players.find(p => p.id === serverPlayer.id);
+                if (localPlayer) {
+                    if (localPlayer.id !== localPlayerId) {
+                        // 他のプレイヤーの状態はそのまま受け入れる
+                        localPlayer.x = serverPlayer.x;
+                    } else {
+                        // ★自己予測の誤差修正 (Reconciliation)
+                        const error = localPlayer.predictedX - serverPlayer.x;
+                        if (Math.abs(error) > 5) {
+                            localPlayer.x = serverPlayer.x; // 大きな誤差は強制修正
+                        } else {
+                            // 小さな誤差はスムーズに補間
+                            localPlayer.x = localPlayer.x - error * 0.1;
+                        }
+                        
+                        // 予測位置をサーバーからの位置でリセット
+                        localPlayer.predictedX = serverPlayer.x;
+                    }
+                    
+                    // プレイヤー以外の状態を更新
+                    localPlayer.health = serverPlayer.health;
+                    localPlayer.score = serverPlayer.score;
+                    localPlayer.bullets = serverPlayer.bullets;
+                    Object.assign(localPlayer.upgrades, serverPlayer.upgrades);
+                }
+            });
             
+            // 敵の状態を更新
+            gameState.enemies = state.enemies;
+            
+            // 強化画面のトリガーチェック (ローカルプレイヤーのみ)
             const player = gameState.players.find(p => p.id === localPlayerId);
             if(player){
                 if (!isUpgrading && player.health > 0 && player.score >= BASE_SCORE_TO_UPGRADE) {
                     enterUpgradeScreen(player.id);
                 }
             }
-        }, this.latency);
+        }, this.latency / 2); // 残りの半分のレイテンシでクライアントに到達
     },
 
     simulateServerTick: function(deltaTime) {
@@ -156,17 +153,18 @@ const Networking = {
         this.inputQueue.forEach(packet => {
             const player = gameState.players.find(p => p.id === packet.playerId);
             if (player) {
+                // 入力パケットをそのまま適用
+                player.input = packet.input;
+                
+                // 強化イベントも処理（簡略化）
                 if (packet.input.upgraded) {
-                    // 強化イベント処理 (簡略化)
-                } else {
-                    player.input = packet.input;
+                    serverApplyUpgrade(player, packet.input.type);
                 }
             }
         });
         this.inputQueue = []; 
 
-        // 2. サーバー側でのロジック更新 (ゲーム状態を更新)
-        
+        // 2. サーバー側でのロジック更新 (移動、発射)
         const activePlayers = gameState.players.filter(p => p.health > 0);
         
         activePlayers.forEach(player => {
@@ -177,6 +175,7 @@ const Networking = {
             if (player.input.right && player.x < GAME_WIDTH - player.size / 2) {
                 player.x += player.speed * (deltaTime / 16);
             }
+            player.x = Math.max(player.size / 2, Math.min(GAME_WIDTH - player.size / 2, player.x)); // 範囲制限
 
             // 発射 (サーバー側で処理)
             const now = Date.now();
@@ -189,33 +188,44 @@ const Networking = {
 
             // 弾丸の移動
             player.bullets = player.bullets.filter(bullet => {
+                if (bullet.isAim) {
+                    serverAutoAim(player, bullet, deltaTime);
+                }
+                
                 if (!bullet.isBounce) {
                     bullet.y -= bullet.speed * (deltaTime / 16); 
                 } else {
                     bullet.x += bullet.velX * (deltaTime / 16);
                     bullet.y += bullet.velY * (deltaTime / 16);
+                    serverCheckBulletBounds(bullet); 
                 }
-                return bullet.y > 0 && bullet.x > 0 && bullet.x < GAME_WIDTH; 
+                
+                return bullet.y > 0 && bullet.x > 0 && bullet.x < GAME_WIDTH && bullet.y < GAME_HEIGHT; 
             });
         });
         
-        // 敵の出現、移動、衝突判定、ダメージ処理 (省略)
-        if (gameState.enemiesKilled % 100 === 0 && gameState.enemies.length === 0) {
+        // ★修正箇所: 敵の出現ロジックを修正
+        // 画面に敵がいない場合、新しい敵をスポーン
+        if (gameState.enemies.length === 0) {
             serverSpawnEnemy(0);
         }
         
+        // 敵の移動
         gameState.enemies.forEach(enemy => {
             enemy.y += enemy.speed * (deltaTime / 16);
         });
         
+        // 衝突判定、ダメージ処理、スコア計算
         serverCheckCollisions();
 
+        // 敵が画面外に出たときの処理
         gameState.enemies = gameState.enemies.filter(enemy => {
             if (enemy.y < GAME_HEIGHT + enemy.size / 2) {
                 return true;
             } else {
                 const alivePlayers = gameState.players.filter(p => p.health > 0);
                 if (alivePlayers.length > 0) {
+                    // 最も体力の低いプレイヤーにダメージ
                     let lowestHealthPlayer = alivePlayers.reduce((minP, currentP) => 
                         (currentP.health < minP.health) ? currentP : minP
                     );
@@ -230,27 +240,66 @@ const Networking = {
             return;
         }
 
-        // 3. 状態を他のクライアントにブロードキャスト（シミュレーション）
-        this.serverStateQueue.forEach((id) => {
-             if (id !== localPlayerId) {
-                Networking.receiveState(JSON.parse(JSON.stringify(gameState)));
-             }
+        // 3. 状態を全クライアントにブロードキャスト（シミュレーション）
+        gameState.players.forEach((p) => {
+             Networking.receiveState(JSON.parse(JSON.stringify(gameState)));
         });
-
-        // 4. ローカルにも状態を反映
-        Networking.receiveState(gameState); 
     }
 };
 
 // --- ホスト/サーバー側のゲームロジック (シングルプレイでも使用) ---
+function serverAutoAim(player, bullet, deltaTime) {
+    const aimStrength = player.upgrades.autoAim.baseAimStrength * player.upgrades.autoAim.level;
+    const nearestEnemy = gameState.enemies.reduce((nearest, enemy) => {
+        const d = distance(player.x, player.y, enemy.x, enemy.y);
+        if (!nearest || d < nearest.distance) {
+            return { enemy: enemy, distance: d };
+        }
+        return nearest;
+    }, null);
+
+    if (nearestEnemy && nearestEnemy.distance < 300) {
+        const dx = nearestEnemy.enemy.x - bullet.x;
+        const dy = nearestEnemy.enemy.y - bullet.y;
+        const angleToTarget = Math.atan2(dy, dx);
+        
+        const currentAngle = Math.atan2(bullet.velY, bullet.velX);
+        const angleDiff = angleToTarget - currentAngle;
+        
+        // 角度差を -PI から PI の範囲に正規化
+        let normalizedDiff = angleDiff;
+        if (normalizedDiff > Math.PI) normalizedDiff -= 2 * Math.PI;
+        if (normalizedDiff < -Math.PI) normalizedDiff += 2 * Math.PI;
+
+        const newAngle = currentAngle + normalizedDiff * aimStrength * (deltaTime / 16);
+        
+        const speed = Math.sqrt(bullet.velX ** 2 + bullet.velY ** 2);
+        
+        bullet.velX = Math.cos(newAngle) * speed;
+        bullet.velY = Math.sin(newAngle) * speed;
+    }
+}
+
+function serverCheckBulletBounds(bullet) {
+    // 左右のバウンド
+    if (bullet.x < bullet.radius || bullet.x > GAME_WIDTH - bullet.radius) {
+        bullet.velX *= -1;
+        bullet.x = Math.max(bullet.radius, Math.min(GAME_WIDTH - bullet.radius, bullet.x));
+    }
+}
+
 function serverShoot(player) {
     const { upgrades } = player;
     const count = upgrades.bulletCount.level;
     const currentSpeed = upgrades.speed.baseSpeed * upgrades.speed.level;
     const currentDamage = upgrades.damage.baseDamage * upgrades.damage.level;
     const currentRadius = upgrades.radius.baseRadius * upgrades.radius.level;
+    const bounceChance = upgrades.bounce.baseChance * upgrades.bounce.level;
+    const isAutoAim = upgrades.autoAim.level > 0;
     
     for (let i = 0; i < count; i++) {
+        const isBounce = Math.random() < bounceChance;
+        
         player.bullets.push({
             x: player.x,
             y: player.y,
@@ -259,8 +308,8 @@ function serverShoot(player) {
             damage: currentDamage,
             velX: 0, 
             velY: -currentSpeed, 
-            isBounce: false,
-            isAim: false,
+            isBounce: isBounce,
+            isAim: isAutoAim,
             ownerId: player.id 
         });
     }
@@ -298,6 +347,7 @@ function serverCheckCollisions() {
         return true;
     });
     
+    // 衝突した弾丸を削除
     gameState.players.forEach(player => {
         player.bullets = player.bullets.filter(bullet => !bullet.hit);
     });
@@ -314,8 +364,31 @@ function serverSpawnEnemy(yOffset = 0) {
     });
 }
 
+function serverApplyUpgrade(player, type) {
+    if (player.score < BASE_SCORE_TO_UPGRADE) return;
+    player.score -= BASE_SCORE_TO_UPGRADE; 
 
-// --- クライアント側の描画と入力処理 ---
+    if (type === 'healthRecover') {
+        const maxHealth = 5; 
+        const targetPlayer = gameState.players.filter(p => p.health > 0 && p.health < maxHealth)
+            .reduce((minP, currentP) => 
+                (currentP.health < minP.health) ? currentP : minP
+            , { health: maxHealth, id: undefined }); 
+
+        if (targetPlayer.id !== undefined) {
+             targetPlayer.health++;
+        }
+    } else {
+        const upgrade = player.upgrades[type];
+        if (upgrade) {
+            upgrade.level++;
+        }
+    }
+    // 強化したプレイヤーは、スコアが足りていれば再度強化可能になる（クライアント側で画面が更新される）
+}
+
+
+// --- クライアント側の処理 ---
 
 function draw() {
     CTX.fillStyle = '#000';
@@ -323,6 +396,8 @@ function draw() {
 
     gameState.players.forEach(player => {
         if (player.health <= 0) return;
+        
+        // 描画には、ホストからの最新の状態を使う
         CTX.fillStyle = player.color;
         CTX.fillRect(player.x - player.size / 2, player.y - player.size / 2, player.size, player.size);
     });
@@ -347,38 +422,49 @@ function draw() {
     updateHUD();
 }
 
-function collectAndSendInput() {
-    if (!gameRunning || isUpgrading || localPlayerId === undefined) return;
+/**
+ * クライアント側でローカルプレイヤーの移動を予測する
+ */
+function localUpdateMovement(deltaTime) {
+    if (!gameRunning || isUpgrading) return;
     
-    // 修正箇所: A/Dキーに加え、矢印キー (ArrowLeft/ArrowRight) もチェック
-    let inputState = {
+    const player = gameState.players.find(p => p.id === localPlayerId);
+    if (!player || player.health <= 0) return;
+    
+    // 入力を収集
+    const inputState = collectInputState(); 
+
+    // 移動処理をローカルで即座に実行 (Predicted Movement)
+    if (inputState.left) {
+        player.predictedX -= player.speed * (deltaTime / 16);
+    }
+    if (inputState.right) {
+        player.predictedX += player.speed * (deltaTime / 16);
+    }
+    
+    player.predictedX = Math.max(player.size / 2, Math.min(GAME_WIDTH - player.size / 2, player.predictedX));
+    
+    // 予測位置を現在の描画位置として一時的に利用 (見た目のラグを隠す)
+    player.x = player.predictedX; 
+}
+
+
+function collectInputState() {
+    // 矢印キーとA/Dキーの両方に対応
+    return {
         left: keys['KeyA'] || keys['ArrowLeft'] || false,
         right: keys['KeyD'] || keys['ArrowRight'] || false,
         shoot: keys['Space'] || false
     };
+}
+
+function collectAndSendInput() {
+    if (!gameRunning || isUpgrading || localPlayerId === undefined) return;
     
-    // モバイルタッチ操作
-    if (isMobileSession) {
-        inputState.shoot = isTouching;
-        
-        const player = gameState.players.find(p => p.id === localPlayerId);
-        if (player && isTouching) {
-            const center = player.x;
-            const threshold = 10;
-            if (touchX < center - threshold) {
-                inputState.left = true;
-                inputState.right = false;
-            } else if (touchX > center + threshold) {
-                inputState.left = false;
-                inputState.right = true;
-            } else {
-                inputState.left = false;
-                inputState.right = false;
-            }
-        }
-    }
+    const inputState = collectInputState(); 
 
     if (isMultiplayer) {
+         // マルチプレイ時: ホストへ入力のみを送信
          Networking.sendInput(inputState);
     } else {
          // シングルプレイ時: ローカルのプレイヤーに入力を直接適用
@@ -397,58 +483,37 @@ function localGameTick(deltaTime) {
     const player = gameState.players[0];
     if (!player || player.health <= 0) return;
 
-    // 1. 移動
-    if (player.input.left && player.x > player.size / 2) {
-        player.x -= player.speed * (deltaTime / 16);
-    }
-    if (player.input.right && player.x < GAME_WIDTH - player.size / 2) {
-        player.x += player.speed * (deltaTime / 16);
-    }
+    // シングルプレイでは、localUpdateMovementで予測した位置をそのまま利用
+    player.x = player.predictedX;
 
     // 2. 発射
     const now = Date.now();
     const fireInterval = player.upgrades.fireRate.baseInterval / player.upgrades.fireRate.level; 
     
     if (player.input.shoot && (now - player.lastShotTime > fireInterval)) {
-        serverShoot(player);
+        serverShoot(player); // サーバー側のロジックを使用
         player.lastShotTime = now;
     }
 
-    // 3. 弾丸の移動
+    // 3. 弾丸の移動 (サーバーロジックと同様)
     player.bullets = player.bullets.filter(bullet => {
+        if (bullet.isAim) {
+            serverAutoAim(player, bullet, deltaTime);
+        }
+        
         if (!bullet.isBounce) {
             bullet.y -= bullet.speed * (deltaTime / 16); 
         } else {
             bullet.x += bullet.velX * (deltaTime / 16);
             bullet.y += bullet.velY * (deltaTime / 16);
+            serverCheckBulletBounds(bullet); 
         }
-        return bullet.y > 0 && bullet.x > 0 && bullet.x < GAME_WIDTH; 
+        return bullet.y > 0 && bullet.x > 0 && bullet.x < GAME_WIDTH && bullet.y < GAME_HEIGHT; 
     });
 
     // 4. 敵の出現、移動、衝突、ダメージ、スコア
-    if (gameState.enemiesKilled % 100 === 0 && gameState.enemies.length === 0) {
-        serverSpawnEnemy(0);
-    }
-    
-    gameState.enemies.forEach(enemy => {
-        enemy.y += enemy.speed * (deltaTime / 16);
-    });
-    
-    serverCheckCollisions(); 
-
-    gameState.enemies = gameState.enemies.filter(enemy => {
-        if (enemy.y < GAME_HEIGHT + enemy.size / 2) {
-            return true;
-        } else {
-            player.health--;
-            return false;
-        }
-    });
-
-    if (player.health <= 0) {
-        gameOver();
-        return;
-    }
+    // シングルプレイではホストと同じロジックを直接実行
+    Networking.simulateServerTick(deltaTime); 
 
     // 5. 強化画面のトリガー
     if (!isUpgrading && player.score >= BASE_SCORE_TO_UPGRADE) {
@@ -467,7 +532,7 @@ function updateHUD() {
         const playerDiv = document.createElement('div');
         playerDiv.className = 'player-info';
         let statusColor = player.health <= 0 ? 'gray' : player.color;
-        const playerLabel = isMultiplayer ? `P${player.id + 1} (${player.color})` : `プレイヤー`;
+        const playerLabel = isMultiplayer ? `P${player.id + 1} (${player.color})${player.id === localPlayerId ? ' (YOU)' : ''}` : `プレイヤー`;
 
         playerDiv.innerHTML = `
             <span style="color: ${statusColor}; font-weight: bold;">${playerLabel}</span>
@@ -476,6 +541,24 @@ function updateHUD() {
         `;
         container.appendChild(playerDiv);
     });
+    // ホスト情報も表示
+    const lobbyMessageElement = document.getElementById('lobby-message');
+    if (lobbyMessageElement) {
+        if (isMultiplayer) {
+             if (Networking.isHost && !gameRunning) {
+                 lobbyMessageElement.textContent = "あなたはホストです。ゲーム開始ボタンを押してください。";
+             } else if (!gameRunning) {
+                 lobbyMessageElement.textContent = "ホストがゲームを開始するのを待っています...";
+             } else {
+                 lobbyMessageElement.textContent = "";
+             }
+        }
+    }
+    
+    const localPlayer = gameState.players.find(p => p.id === localPlayerId);
+    if(localPlayer){
+         document.getElementById('upgrade-score').textContent = Math.floor(localPlayer.score);
+    }
 }
 
 function gameOver() {
@@ -497,8 +580,7 @@ function enterUpgradeScreen(playerId) {
     currentUpgradePlayerId = playerId;
     const player = gameState.players.find(p => p.id === playerId);
 
-    document.getElementById('upgrade-score').textContent = Math.floor(player.score);
-    
+    // アップグレードボタンの表示更新
     const container = document.getElementById('upgrade-buttons-container');
     container.innerHTML = ''; 
 
@@ -541,36 +623,30 @@ window.applyUpgrade = function(type) {
             return;
         }
 
+        // クライアント側でスコアを一時的に減らす（応答待ちの間に強化画面から抜けられないように）
         player.score -= BASE_SCORE_TO_UPGRADE; 
 
-        if (type === 'healthRecover') {
-            const maxHealth = 5; 
-            const targetPlayer = gameState.players.filter(p => p.health > 0 && p.health < maxHealth)
-                .reduce((minP, currentP) => 
-                    (currentP.health < minP.health) ? currentP : minP
-                , { health: maxHealth, id: undefined }); 
-
-            if (targetPlayer.id !== undefined) {
-                 targetPlayer.health++;
-            }
+        if (isMultiplayer) {
+            // マルチプレイ時: 入力パケットとして強化要求をホストへ送信
+            Networking.sendInput({ upgraded: true, type: type, playerId: playerId });
             
-            isUpgrading = false;
-            document.getElementById('upgrade-screen').style.display = 'none';
-
-        } else {
-            const upgrade = player.upgrades[type];
-            upgrade.level++;
-            
-            enterUpgradeScreen(playerId); 
-            
+            // 強化画面を閉じるのはホストからの状態更新を待ってから行うのが理想だが、ここでは簡略化
             if (player.score < BASE_SCORE_TO_UPGRADE) {
                 isUpgrading = false;
                 document.getElementById('upgrade-screen').style.display = 'none';
+            } else {
+                 // スコアがまだある場合は、ボタンの状態を更新するために画面を再描画
+                 enterUpgradeScreen(playerId); 
             }
-        }
-        
-        if (isMultiplayer) {
-            Networking.sendInput({ upgraded: true, type: type, playerId: playerId, score: player.score, level: player.upgrades[type]?.level });
+        } else {
+            // シングルプレイ時: 即座に適用し、画面を閉じるか更新
+            serverApplyUpgrade(player, type);
+            if (player.score < BASE_SCORE_TO_UPGRADE || type === 'healthRecover') {
+                isUpgrading = false;
+                document.getElementById('upgrade-screen').style.display = 'none';
+            } else {
+                 enterUpgradeScreen(playerId);
+            }
         }
         
         document.getElementById('upgrade-score').textContent = Math.floor(player.score);
@@ -584,10 +660,8 @@ window.applyUpgrade = function(type) {
 window.startSinglePlayer = function() {
     isMultiplayer = false;
     Networking.isConnected = false; 
-    Networking.isHost = false;
-    Networking.serverStateQueue = []; 
-    Networking.inputQueue = [];
-
+    Networking.isHost = true; // シングルプレイは常にホスト(サーバーロジック)を実行
+    
     localPlayerId = 0; 
     gameState.players = [createPlayer(0, PLAYER_COLORS[0])];
     
@@ -600,20 +674,18 @@ window.startSinglePlayer = function() {
 window.showLobby = function() {
     gameRunning = false;
     isUpgrading = false;
-    // ロビーに戻る際もマルチプレイ状態をリセット
+    
     isMultiplayer = false;
     Networking.isConnected = false;
-    Networking.isHost = false;
-    Networking.serverStateQueue = []; 
-    Networking.inputQueue = [];
+    Networking.isHost = false; 
+
+    gameState.players = [createPlayer(0, PLAYER_COLORS[0])];
     
     document.getElementById('lobby-screen').style.display = 'flex';
     document.getElementById('game-over-screen').style.display = 'none';
     document.getElementById('upgrade-screen').style.display = 'none';
     document.getElementById('hud').style.display = 'none';
 
-    // ホストの初期化
-    gameState.players = [createPlayer(0, PLAYER_COLORS[0])];
     document.getElementById('lobby-player-count').textContent = gameState.players.length;
     document.getElementById('start-multi-game-button').style.display = 'none';
     document.getElementById('lobby-message').textContent = 'モードを選択するか、パーティルームを作成してください。';
@@ -623,22 +695,18 @@ window.createOrJoinRoom = function(isHost) {
     const roomName = document.getElementById('room-name').value;
     if (!roomName) return;
 
-    if (Networking.isConnected && gameState.players.some(p => p.id === localPlayerId)) {
-         document.getElementById('lobby-message').textContent = `あなたは既に P${localPlayerId + 1} として参加しています。`;
-         return;
-    }
-
+    // 接続のシミュレーション
     Networking.connect(isHost); 
     isMultiplayer = true;
     
     if (isHost) {
         localPlayerId = 0;
         gameState.players = [createPlayer(0, PLAYER_COLORS[0])];
-        Networking.isHost = true;
-        Networking.serverStateQueue = [0]; 
+        
         document.getElementById('start-multi-game-button').style.display = 'block';
-        document.getElementById('lobby-message').textContent = `「${roomName}」を作成しました。 (P1: ${PLAYER_COLORS[0]})`;
+        document.getElementById('lobby-message').textContent = `「${roomName}」を作成しました。あなたはホスト(P1)です。`;
     } else {
+        // クライアント参加のシミュレーション（ここでは参加を許可する）
         const currentMaxId = gameState.players.reduce((max, p) => Math.max(max, p.id), -1);
         const newPlayerId = currentMaxId + 1;
 
@@ -652,11 +720,9 @@ window.createOrJoinRoom = function(isHost) {
         gameState.players.push(newPlayer); 
         localPlayerId = newPlayerId; 
         
-        Networking.serverStateQueue.push(newPlayerId); 
-        
         document.getElementById('start-multi-game-button').style.display = 'none'; 
         document.getElementById('lobby-message').textContent = 
-            `「${roomName}」に参加しました。 (P${newPlayerId + 1}: ${PLAYER_COLORS[newPlayerId]})`;
+            `「${roomName}」に参加しました。ホストがゲームを開始するのを待っています...`;
     }
     
     document.getElementById('lobby-player-count').textContent = gameState.players.length;
@@ -665,6 +731,9 @@ window.createOrJoinRoom = function(isHost) {
 };
 
 window.startGame = function() {
+    // ホストのみが開始できる
+    if (isMultiplayer && !Networking.isHost) return; 
+
     gameState.enemies = [];
     gameState.enemiesKilled = 0;
     
@@ -673,14 +742,16 @@ window.startGame = function() {
         p.score = 0;
         p.totalScoreEarned = 0;
         p.bullets = [];
-        p.x = GAME_WIDTH / (gameState.players.length + 1) * (index + 1); 
+        // 初期位置を再設定
+        p.x = GAME_WIDTH / (gameState.players.length + 1) * (index + 1);
+        p.predictedX = p.x; 
     });
 
     gameRunning = true;
     document.getElementById('lobby-screen').style.display = 'none';
     document.getElementById('game-over-screen').style.display = 'none';
     
-    // シングルプレイまたはホストの場合に敵をスポーン
+    // ホストまたはシングルプレイの場合に敵をスポーン
     if (Networking.isHost || !isMultiplayer) { 
         serverSpawnEnemy(0); 
     }
@@ -700,18 +771,22 @@ function gameLoop(currentTime) {
     lastTime = currentTime;
 
     if (gameRunning) {
-        // 1. クライアントからの入力を収集
+        // 1. クライアント側での移動予測 (マルチプレイでのラグ隠し)
+        localUpdateMovement(deltaTime);
+        
+        // 2. 入力収集と送信 (マルチプレイ時のみホストへ送信)
         collectAndSendInput();
         
-        if (isMultiplayer) {
-            // 2A. マルチプレイ: ホスト側でサーバーロジックを実行し、全員に状態を同期
+        if (Networking.isHost) {
+            // 3A. ホスト: サーバーロジックを実行し、状態をクライアントに送信
             Networking.simulateServerTick(deltaTime);
-        } else {
-            // 2B. シングルプレイ: ローカルで全てのゲームロジックを実行
+        } else if (!isMultiplayer) {
+             // 3B. シングルプレイ: ホストロジックをローカルで実行
             localGameTick(deltaTime);
         }
-        
-        // 3. 描画
+        // クライアントはホストからの状態受信を待つのみ
+
+        // 4. 描画
         draw();
     } else {
         updateHUD(); 
