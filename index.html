@@ -3,46 +3,180 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>協力プレイ対応 強化シューティングゲーム</title>
-    </head>
+    <title>強化シューティングゲーム (BGM対応)</title>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            background-color: #222;
+            color: #fff;
+            font-family: Arial, sans-serif;
+            margin: 0;
+            min-height: 100vh;
+        }
+        #game-area {
+            position: relative;
+            margin-bottom: 20px;
+            /* PCでの固定サイズ (ゲームキャンバスの width/height と一致させる) */
+            width: 600px; 
+            height: 700px;
+            max-width: 600px;
+            max-height: 700px;
+            box-sizing: border-box; 
+            z-index: 5; 
+        }
+        #game-canvas {
+            position: absolute; 
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%; 
+            border: 2px solid #00ff00;
+            display: block;
+            z-index: 10; 
+        }
+        
+        #hud {
+            max-width: 600px; 
+            width: 600px; /* PCでの幅を固定 */
+            display: none; 
+            justify-content: space-between;
+            padding: 10px 0;
+            font-size: 1.2em;
+        }
+        
+        .screen-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.95);
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            box-sizing: border-box;
+            text-align: center;
+            z-index: 50; 
+        }
+        
+        #mode-selection button, #music-mode-controls button {
+             padding: 15px 30px;
+             margin: 10px;
+             font-size: 1.2em;
+             cursor: pointer;
+             background-color: #007bff;
+             color: white;
+             border: none;
+             border-radius: 8px;
+        }
+
+        #upgrade-screen {
+            background-color: rgba(0, 0, 0, 0.9);
+            z-index: 20;
+            display: none; 
+        }
+        .upgrade-button {
+            padding: 10px 20px;
+            margin: 8px; 
+            font-size: 1.1em;
+            cursor: pointer;
+            background-color: #4CAF50;
+            border: none;
+            border-radius: 5px;
+            transition: background-color 0.3s;
+        }
+        .upgrade-button:hover {
+            background-color: #45a049;
+        }
+        
+        #game-over-screen {
+            background-color: rgba(150, 0, 0, 0.8);
+            font-size: 2em;
+            z-index: 30; 
+            display: none;
+        }
+        
+        /* YouTubeプレイヤーを非表示にし、音声だけを再生するために最小化 */
+        #youtube-player-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 1px;
+            height: 1px;
+            overflow: hidden;
+            z-index: 1;
+        }
+    </style>
+</head>
 <body>
     <div id="game-area">
         <canvas id="game-canvas" width="600" height="700"></canvas>
         
-        <div id="youtube-player-container" style="position: absolute; top: 0; left: 0; width: 1px; height: 1px; overflow: hidden; z-index: 1;">
+        <div id="youtube-player-container">
             <div id="youtube-player"></div>
         </div>
         
-        <div id="lobby-screen">
-            <h2>🛸 協力プレイロビー 🛸</h2>
-            <hr style="width: 80%; margin: 20px 0;">
-
-            <h3>🎵 BGM設定 (YouTube)</h3>
-            <div id="music-mode-controls">
-                <input type="text" id="youtube-url" placeholder="YouTube URL または Video ID を入力" value="" style="padding: 10px; margin-bottom: 10px; width: 80%;">
-                <p style="font-size: 0.8em; color: #aaa;">例: `https://www.youtube.com/watch?v=dQw4w9WgXcQ`</p>
-                <button onclick="window.loadAndPlayMusic()" style="background-color: #ff0000; color: white; padding: 10px 20px; border: none; border-radius: 5px;">
-                    音楽をロードして再生
-                </button>
-                <p id="music-status" style="color: yellow; margin-top: 10px;">ステータス: 停止中</p>
+        <div id="lobby-screen" class="screen-overlay">
+            <h2>🛸 強化シューティングゲーム 🛸</h2>
+            <div id="mode-selection">
+                <button onclick="window.startGame(false)">新規ゲーム開始</button>
+                <button id="load-game-button" onclick="window.startGame(true)" style="display:none; background-color: #ff9800;">続きから (ロード)</button>
             </div>
             
             <hr style="width: 80%; margin: 20px 0;">
 
-            <h3>マルチプレイ (シミュレーション)</h3>
-            <div id="room-controls">
-                <input type="text" id="room-name" placeholder="ルーム名を入力" value="CoopRoom1" style="padding: 10px; margin-bottom: 10px; width: 200px;">
-                <br>
-                <button onclick="window.createOrJoinRoom(true)">ルーム作成 (ホスト)</button>
-                <button onclick="window.createOrJoinRoom(false)">ルーム参加 (クライアント)</button>
+            <h3>🎵 BGM設定 (YouTube)</h3>
+            <div id="music-mode-controls" style="width: 90%;">
+                <input type="text" id="youtube-url" placeholder="YouTube URL または Video ID を入力" value="" style="padding: 10px; margin-bottom: 10px; width: 100%; box-sizing: border-box;">
+                <p style="font-size: 0.8em; color: #aaa; margin: 0 0 10px 0;">例: `https://www.youtube.com/watch?v=dQw4w9WgXcQ`</p>
+                <button onclick="window.loadAndPlayMusic()" style="background-color: #ff0000; color: white; padding: 10px 20px; border: none; border-radius: 5px;">
+                    音楽をロード
+                </button>
+                <p id="music-status" style="color: yellow; margin-top: 10px;">ステータス: 停止中</p>
             </div>
-            <button id="start-multi-game-button" onclick="window.startGame()">ゲーム開始</button>
         </div>
         
+        <div id="upgrade-screen" class="screen-overlay">
+            <h2>✨ 強化タイム ✨</h2>
+            <p>現在のスコア: <span id="upgrade-score">0</span></p>
+            <p>強化コスト: **10 スコア**</p>
+            <p>アップグレードを選択してください:</p>
+
+            <div id="upgrade-buttons-container">
+                <button class="upgrade-button" onclick="window.applyUpgrade('damage')">ダメージアップ (Lv: <span id="lv-damage">1</span>)</button>
+                <button class="upgrade-button" onclick="window.applyUpgrade('speed')">弾丸速度アップ (Lv: <span id="lv-speed">1</span>)</button>
+                <button class="upgrade-button" onclick="window.applyUpgrade('radius')">当たり判定拡大 (Lv: <span id="lv-radius">1</span>)</button>
+                <br>
+                <button class="upgrade-button" onclick="window.applyUpgrade('fireRate')">連射速度上昇 (Lv: <span id="lv-fireRate">1</span>)</button>
+                <button class="upgrade-button" onclick="window.applyUpgrade('bulletCount')">同時弾数上昇 (Lv: <span id="lv-bulletCount">1</span>)</button>
+                <button class="upgrade-button" onclick="window.applyUpgrade('bounce')">バウンド弾 (Lv: <span id="lv-bounce">0</span>)</button>
+                <br>
+                <button class="upgrade-button" onclick="window.applyUpgrade('autoAim')">オートエイム (Lv: <span id="lv-autoAim">0</span>)</button>
+            </div>
+            
+            <p id="upgrade-message" style="margin-top: 20px; color: yellow;"></p>
         </div>
 
-    <div id="hud">
+        <div id="game-over-screen" class="screen-overlay">
+            ゲームオーバー！
+            <p style="font-size: 0.5em;">最終スコア: <span id="final-score">0</span></p>
+            <button onclick="window.showLobby()" class="upgrade-button">ロビーに戻る</button>
         </div>
+    </div>
+
+    <div id="hud">
+        <span>体力: <span id="health-display">5</span></span>
+        <span>スコア: <span id="score-display">0</span></span>
+        <button onclick="window.exitGame()" style="background-color: #f44336; color: white; padding: 5px 10px; border: none; border-radius: 5px; cursor: pointer;">
+            終了
+        </button>
+    </div>
 
     <script>
         var tag = document.createElement('script');
