@@ -169,7 +169,7 @@ function loadGame() {
 }
 
 
-// --- ネットワーク層のシミュレーション ---
+// --- ネットワーク層のシミュレーション (サーバー/クライアント間の通信を単一セッション内で再現) ---
 const Networking = {
     isConnected: false,
     isHost: false,
@@ -275,18 +275,21 @@ const Networking = {
             }
 
             player.bullets = player.bullets.filter(bullet => {
-                if (bullet.isAim) {
-                    serverAutoAim(player, bullet, deltaTime);
-                }
+                // 自動エイムのロジック (省略: 実際の実装が必要)
+                // if (bullet.isAim) {
+                //     serverAutoAim(player, bullet, deltaTime);
+                // }
                 
                 if (!bullet.isBounce) {
                     bullet.y -= bullet.speed * (deltaTime / 16); 
                 } else {
-                    bullet.x += bullet.velX * (deltaTime / 16);
-                    bullet.y += bullet.velY * (deltaTime / 16);
-                    serverCheckBulletBounds(bullet); 
+                    // バウンド弾のロジック (省略: 実際の実装が必要)
+                    // bullet.x += bullet.velX * (deltaTime / 16);
+                    // bullet.y += bullet.velY * (deltaTime / 16);
+                    // serverCheckBulletBounds(bullet); 
                 }
                 
+                // 画面外に出た弾丸を削除
                 return bullet.y > 0 && bullet.x > 0 && bullet.x < GAME_WIDTH && bullet.y < GAME_HEIGHT; 
             });
         });
@@ -300,7 +303,7 @@ const Networking = {
             enemy.y += enemy.speed * (deltaTime / 16);
         });
         
-        // 4. 衝突判定
+        // 4. 衝突判定 (弾丸と敵、敵とプレイヤー/画面下端)
         serverCheckCollisions();
 
         // 5. 敵の消失とプレイヤーへのダメージ
@@ -308,6 +311,7 @@ const Networking = {
             if (enemy.y < GAME_HEIGHT + enemy.size / 2) {
                 return true;
             } else {
+                // 画面下端に達したら最も体力の低いプレイヤーにダメージを与える
                 const alivePlayers = gameState.players.filter(p => p.health > 0);
                 if (alivePlayers.length > 0) {
                     let lowestHealthPlayer = alivePlayers.reduce((minP, currentP) => 
@@ -340,11 +344,62 @@ const Networking = {
     }
 };
 
-// ... (サーバーロジック関数は省略) ...
+// --- サーバー側のゲームロジック関数 (簡略化) ---
 function serverAutoAim(player, bullet, deltaTime) { /* ... */ }
 function serverCheckBulletBounds(bullet) { /* ... */ }
-function serverShoot(player) { /* ... */ }
-function serverCheckCollisions() { /* ... */ }
+
+function serverShoot(player) {
+    const bulletCount = player.upgrades.bulletCount.level;
+    const bulletSpeed = player.upgrades.speed.baseSpeed;
+    const bulletRadius = player.upgrades.radius.baseRadius;
+    const bulletDamage = player.upgrades.damage.baseDamage * player.upgrades.damage.level;
+    const isAutoAim = player.upgrades.autoAim.level > 0;
+    const isBounce = player.upgrades.bounce.level > 0 && Math.random() < player.upgrades.bounce.baseChance * player.upgrades.bounce.level;
+
+    for (let i = 0; i < bulletCount; i++) {
+        const offset = (i - (bulletCount - 1) / 2) * 5; 
+        
+        player.bullets.push({
+            x: player.x + offset, 
+            y: player.y - player.size / 2, 
+            radius: bulletRadius, 
+            speed: bulletSpeed,
+            damage: bulletDamage,
+            ownerId: player.id,
+            isAim: isAutoAim,
+            isBounce: isBounce,
+            velX: 0, velY: -bulletSpeed
+        });
+    }
+}
+
+function serverCheckCollisions() {
+    // 敵と弾丸の衝突判定
+    gameState.enemies.forEach(enemy => {
+        gameState.players.forEach(player => {
+            player.bullets = player.bullets.filter(bullet => {
+                if (distance(enemy.x, enemy.y, bullet.x, bullet.y) < enemy.size / 2 + bullet.radius) {
+                    enemy.health -= bullet.damage;
+                    enemy.lastHitBulletOwnerId = bullet.ownerId; // 最後にヒットさせたプレイヤーを記録
+                    return false; // 弾丸を削除
+                }
+                return true; 
+            });
+        });
+
+        if (enemy.health <= 0) {
+            const scorer = gameState.players.find(p => p.id === enemy.lastHitBulletOwnerId);
+            if (scorer) {
+                scorer.score += ENEMY_VALUE;
+                scorer.totalScoreEarned += ENEMY_VALUE;
+            }
+            gameState.enemiesKilled++;
+        }
+    });
+
+    gameState.enemies = gameState.enemies.filter(enemy => enemy.health > 0);
+}
+
 function serverSpawnEnemy(yOffset = 0) { 
     gameState.enemies.push({
         x: Math.random() * (GAME_WIDTH - 40) + 20,
@@ -355,8 +410,24 @@ function serverSpawnEnemy(yOffset = 0) {
         lastHitBulletOwnerId: undefined 
     });
 }
-function serverApplyUpgrade(player, type) { /* ... */ }
 
+function serverApplyUpgrade(player, type) {
+    if (type === 'healthRecover') {
+        // 最も体力の低いプレイヤーを回復 (マルチプレイ専用シミュレーション)
+        const lowestHealthPlayer = gameState.players.reduce((minP, currentP) => 
+            (currentP.health < minP.health) ? currentP : minP
+        );
+        lowestHealthPlayer.health++;
+        lowestHealthPlayer.health = Math.min(lowestHealthPlayer.health, 5); // 最大体力は5とする
+        return;
+    }
+
+    const upgrade = player.upgrades[type];
+    if (upgrade) {
+        upgrade.level++;
+        console.log(`Player ${player.id} upgraded ${type} to level ${upgrade.level}`);
+    }
+}
 
 // --- クライアント側の処理 ---
 
@@ -369,7 +440,7 @@ function draw() {
         if (player.health <= 0) return;
         CTX.fillStyle = player.color;
         
-        // ★修正点: プレイヤーの位置として、サーバーからの最新の状態(player.x)を使用する
+        // プレイヤーの位置として、サーバーからの最新の状態(player.x)を使用する
         CTX.fillRect(player.x - player.size / 2, player.y - player.size / 2, player.size, player.size);
         
         // プレイヤーIDの表示
@@ -381,7 +452,7 @@ function draw() {
 
     // 弾丸の描画 (全てのプレイヤーの弾丸を描画)
     gameState.players.forEach(player => {
-        // ★修正点: player.bullets を直接使用し、サーバーから同期された弾丸を描画する
+        // player.bullets を直接使用し、サーバーから同期された弾丸を描画する
         player.bullets.forEach(bullet => {
             CTX.fillStyle = player.color; 
             CTX.beginPath();
@@ -438,6 +509,7 @@ function localUpdateMovement(deltaTime) {
     
     player.predictedX = Math.max(player.size / 2, Math.min(GAME_WIDTH - player.size / 2, player.predictedX));
     
+    // 表示には予測位置を使用
     player.x = player.predictedX; 
 }
 
@@ -474,29 +546,7 @@ function localGameTick(deltaTime) {
 
     player.x = player.predictedX;
 
-    const now = Date.now();
-    const fireInterval = player.upgrades.fireRate.baseInterval / player.upgrades.fireRate.level; 
-    
-    if (player.input.shoot && (now - player.lastShotTime > fireInterval)) {
-        serverShoot(player); 
-        player.lastShotTime = now;
-    }
-
-    player.bullets = player.bullets.filter(bullet => {
-        if (bullet.isAim) {
-            serverAutoAim(player, bullet, deltaTime);
-        }
-        
-        if (!bullet.isBounce) {
-            bullet.y -= bullet.speed * (deltaTime / 16); 
-        } else {
-            bullet.x += bullet.velX * (deltaTime / 16);
-            bullet.y += bullet.velY * (deltaTime / 16);
-            serverCheckBulletBounds(bullet); 
-        }
-        return bullet.y > 0 && bullet.x > 0 && bullet.x < GAME_WIDTH && bullet.y < GAME_HEIGHT; 
-    });
-
+    // シングルプレイでは、ホスト（サーバー）の役割を果たす
     Networking.simulateServerTick(deltaTime); 
 
     if (!isUpgrading && player.score >= BASE_SCORE_TO_UPGRADE) {
@@ -529,9 +579,9 @@ function updateHUD() {
     if (lobbyMessageElement) {
         if (isMultiplayer) {
              if (Networking.isHost && !gameRunning) {
-                 lobbyMessageElement.textContent = "あなたはホストです。ゲーム開始ボタンを押してください。";
+                 lobbyMessageElement.textContent = `あなたはホスト(P${localPlayerId + 1})です。ゲーム開始ボタンを押してください。`;
              } else if (!gameRunning) {
-                 lobbyMessageElement.textContent = "ホストがゲームを開始するのを待っています...";
+                 lobbyMessageElement.textContent = `あなたはクライアント(P${localPlayerId + 1})です。ホストのゲーム開始を待っています...`;
              } else {
                  lobbyMessageElement.textContent = "";
              }
@@ -615,15 +665,17 @@ window.applyUpgrade = function(type) {
         player.score -= BASE_SCORE_TO_UPGRADE; 
 
         if (isMultiplayer) {
+            // マルチプレイでは入力をサーバーに送り、サーバーが処理する
             Networking.sendInput({ upgraded: true, type: type, playerId: playerId });
             
-            if (player.score < BASE_SCORE_TO_UPGRADE) {
+            if (player.score < BASE_SCORE_TO_UPGRADE || type === 'healthRecover') {
                 isUpgrading = false;
                 document.getElementById('upgrade-screen').style.display = 'none';
             } else {
                  enterUpgradeScreen(playerId); 
             }
         } else {
+            // シングルプレイではローカルでサーバー処理を直接呼び出す
             serverApplyUpgrade(player, type);
             if (player.score < BASE_SCORE_TO_UPGRADE || type === 'healthRecover') {
                 isUpgrading = false;
@@ -684,8 +736,10 @@ window.showLobby = function() {
     Networking.isConnected = false;
     Networking.isHost = false; 
 
+    // ロビーに戻る際は、ローカルプレイヤー（P1）のみの状態に戻す
     gameState.players = [createPlayer(0, PLAYER_COLORS[0])];
-    
+    localPlayerId = 0; 
+
     document.getElementById('lobby-screen').style.display = 'flex';
     document.getElementById('game-over-screen').style.display = 'none';
     document.getElementById('upgrade-screen').style.display = 'none';
@@ -699,38 +753,43 @@ window.showLobby = function() {
     document.getElementById('lobby-message').textContent = 'モードを選択するか、パーティルームを作成してください。';
 };
 
+/**
+ * ルーム作成/参加ロジック
+ */
 window.createOrJoinRoom = function(isHost) {
     const roomName = document.getElementById('room-name').value;
     if (!roomName) return;
 
-    Networking.connect(isHost); 
-    isMultiplayer = true;
-    
     // ホストとして作成する場合
     if (isHost) {
+        Networking.connect(true); 
+        isMultiplayer = true;
+        
         localPlayerId = 0;
+        // ホストは自身P1を初期化
         gameState.players = [createPlayer(0, PLAYER_COLORS[0])];
+        
         document.getElementById('start-multi-game-button').style.display = 'block';
         document.getElementById('lobby-message').textContent = `「${roomName}」を作成しました。あなたはホスト(P1)です。`;
     } 
     // クライアントとして参加する場合
     else {
-        // クライアントが参加する際、ホスト側のプレイヤーリストの最新の状態を取得し、自分のIDを決定するシミュレーションを行う。
+        Networking.connect(false);
+        isMultiplayer = true;
+
+        // シミュレーション: ホストの状態をコピーして、現在の参加者数を確認
         const currentMaxId = gameState.players.length > 0 ? gameState.players.reduce((max, p) => Math.max(max, p.id), -1) : -1;
         const newPlayerId = currentMaxId + 1;
         
         if (newPlayerId < PLAYER_COLORS.length) {
              localPlayerId = newPlayerId;
              
-             // クライアントが参加した際、ホスト側のgameState.playersに新しいプレイヤーを**直接追加**するシミュレーションを行う
+             // クライアントが参加した際、ホスト側の gameState.players に新しいプレイヤーを**追加**し、状態を同期させる
              const newPlayer = createPlayer(newPlayerId, PLAYER_COLORS[newPlayerId]);
              
-             // クライアント側のリストに追加
+             // クライアント側のリストに追加 (ホスト側のリストも更新されたと見なす)
              gameState.players.push(newPlayer);
              
-             // ホスト側のUIを更新するためにも、updateHUDを呼び出す
-             updateHUD(); 
-
              document.getElementById('start-multi-game-button').style.display = 'none'; 
              document.getElementById('lobby-message').textContent = 
                  `「${roomName}」に参加しました。あなたはクライアント(P${localPlayerId + 1})です。ホストのゲーム開始を待っています...`;
@@ -738,6 +797,8 @@ window.createOrJoinRoom = function(isHost) {
              localPlayerId = -1; // Invalid ID
              Networking.isConnected = false;
              document.getElementById('lobby-message').textContent = '満員です。最大4人までです。';
+             // 参加失敗時、ロビーの初期状態に戻す
+             window.showLobby(); 
              return;
         }
     }
@@ -760,6 +821,7 @@ window.startGame = function(isLoad = false) {
             p.totalScoreEarned = 0;
             p.bullets = [];
         }
+        // プレイヤーの初期位置を再計算
         p.x = GAME_WIDTH / (gameState.players.length + 1) * (index + 1);
         p.predictedX = p.x; 
     });
@@ -787,12 +849,15 @@ function gameLoop(currentTime) {
     lastTime = currentTime;
 
     if (gameRunning) {
+        // 全プレイヤーの入力処理と自己予測をローカルで実行
         localUpdateMovement(deltaTime);
         collectAndSendInput();
         
         if (Networking.isHost) {
+            // ホストはサーバー処理を実行し、クライアントへ状態を送信
             Networking.simulateServerTick(deltaTime);
         } else if (!isMultiplayer) {
+            // シングルプレイはローカルゲームティックを実行
             localGameTick(deltaTime);
         }
 
