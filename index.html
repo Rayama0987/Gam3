@@ -65,7 +65,7 @@
             z-index: 50; 
         }
         
-        #mode-selection button, #music-mode-controls button {
+        #mode-selection button {
              padding: 15px 30px;
              margin: 10px;
              font-size: 1.2em;
@@ -112,6 +112,26 @@
             overflow: hidden;
             z-index: 1;
         }
+
+        /* ゲームエリア下のBGM設定エリアのスタイル */
+        #music-settings-container {
+            max-width: 600px; 
+            width: 600px; 
+            padding: 15px 0;
+            text-align: center;
+            background-color: #333;
+            border-radius: 8px;
+            margin-top: 10px;
+        }
+        #music-mode-controls button {
+             padding: 10px 20px;
+             font-size: 1em;
+             cursor: pointer;
+             background-color: #ff0000;
+             color: white;
+             border: none;
+             border-radius: 5px;
+        }
     </style>
 </head>
 <body>
@@ -127,18 +147,6 @@
             <div id="mode-selection">
                 <button onclick="window.startGame(false)">新規ゲーム開始</button>
                 <button id="load-game-button" onclick="window.startGame(true)" style="display:none; background-color: #ff9800;">続きから (ロード)</button>
-            </div>
-            
-            <hr style="width: 80%; margin: 20px 0;">
-
-            <h3>🎵 BGM設定 (YouTube)</h3>
-            <div id="music-mode-controls" style="width: 90%;">
-                <input type="text" id="youtube-url" placeholder="YouTube URL または Video ID を入力" value="" style="padding: 10px; margin-bottom: 10px; width: 100%; box-sizing: border-box;">
-                <p style="font-size: 0.8em; color: #aaa; margin: 0 0 10px 0;">例: `https://www.youtube.com/watch?v=dQw4w9WgXcQ`</p>
-                <button onclick="window.loadAndPlayMusic()" style="background-color: #ff0000; color: white; padding: 10px 20px; border: none; border-radius: 5px;">
-                    音楽をロード
-                </button>
-                <p id="music-status" style="color: yellow; margin-top: 10px;">ステータス: 停止中</p>
             </div>
         </div>
         
@@ -192,6 +200,17 @@
         </button>
     </div>
 
+    <div id="music-settings-container">
+        <h3>🎵 BGM設定 (YouTube)</h3>
+        <div id="music-mode-controls" style="width: 90%; margin: 0 auto;">
+            <input type="text" id="youtube-url" placeholder="YouTube URL または Video ID を入力" value="" style="padding: 10px; margin-bottom: 10px; width: 100%; box-sizing: border-box;">
+            <p style="font-size: 0.8em; color: #aaa; margin: 0 0 10px 0;">例: `https://www.youtube.com/watch?v=dQw4w9WgXcQ`</p>
+            <button onclick="window.loadAndPlayMusic()">
+                音楽をロード
+            </button>
+            <p id="music-status" style="color: yellow; margin-top: 10px;">ステータス: 停止中</p>
+        </div>
+    </div>
     <script>
         var tag = document.createElement('script');
         tag.src = "https://www.youtube.com/iframe_api";
