@@ -64,7 +64,7 @@ function createPlayer(id, color) {
 }
 
 
-// --- イベントリスナー (キー入力) ---
+// --- イベントリスナー (入力) ---
 document.addEventListener('keydown', (e) => {
     keys[e.code] = true;
     if (e.code === 'Space') {
@@ -75,16 +75,14 @@ document.addEventListener('keyup', (e) => {
     keys[e.code] = false;
 });
 
-// --- タッチイベントリスナー ---
 CANVAS.addEventListener('touchstart', (e) => {
     e.preventDefault();
-    if (e.touches.length > 0) { // ★修正: touchesがあるか確認
+    if (e.touches.length > 0) {
         const rect = CANVAS.getBoundingClientRect();
         const touchX = e.touches[0].clientX - rect.left;
         
         touchInput.shoot = true; 
         touchInput.isDown = true;
-        // 座標をCanvasサイズに正規化
         touchInput.x = touchX * (GAME_WIDTH / rect.width); 
     }
 }, { passive: false });
@@ -94,13 +92,11 @@ CANVAS.addEventListener('touchmove', (e) => {
     if (touchInput.isDown && e.touches.length > 0) {
         const rect = CANVAS.getBoundingClientRect();
         const touchX = e.touches[0].clientX - rect.left;
-        // 座標をCanvasサイズに正規化
         touchInput.x = touchX * (GAME_WIDTH / rect.width); 
     }
 }, { passive: false });
 
 CANVAS.addEventListener('touchend', (e) => {
-    // touchendの際はtouchesが空になるため、残っている指がないことを確認
     if (e.touches.length === 0) {
         touchInput.isDown = false;
         touchInput.shoot = false; 
@@ -112,8 +108,6 @@ CANVAS.addEventListener('touchend', (e) => {
 function distance(x1, y1, x2, y2) {
     return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
 }
-
-// ... (saveGame, loadGame は省略) ...
 
 /**
  * ゲーム状態をlocalStorageに保存 (シングルプレイ専用)
@@ -191,6 +185,7 @@ const Networking = {
     sendInput: function(input) {
         if (!this.isConnected) return;
         
+        // ホストに送るシミュレーション (ここでは inputQueue に入れる)
         setTimeout(() => {
             this.inputQueue.push({ playerId: localPlayerId, input: input });
         }, this.latency / 2); 
@@ -208,10 +203,12 @@ const Networking = {
                 });
             }
 
+            // 状態の適用
             state.players.forEach(serverPlayer => {
                 const localPlayer = gameState.players.find(p => p.id === serverPlayer.id);
                 if (localPlayer) {
                     if (localPlayer.id !== localPlayerId) {
+                        // 味方プレイヤーの状態をそのまま受け入れる
                         localPlayer.x = serverPlayer.x;
                     } else {
                         // 自己予測の誤差修正 (Reconciliation)
@@ -245,8 +242,7 @@ const Networking = {
     simulateServerTick: function(deltaTime) {
         if (!this.isHost || !gameRunning || isUpgrading) return;
         
-        // ... (省略: サーバー側でのロジック更新 - 移動、発射、衝突、敵の出現など) ...
-
+        // 1. 入力処理
         this.inputQueue.forEach(packet => {
             const player = gameState.players.find(p => p.id === packet.playerId);
             if (player) {
@@ -257,7 +253,8 @@ const Networking = {
             }
         });
         this.inputQueue = []; 
-
+        
+        // 2. 状態更新 (移動、発射、弾丸の更新)
         const activePlayers = gameState.players.filter(p => p.health > 0);
         
         activePlayers.forEach(player => {
@@ -294,6 +291,7 @@ const Networking = {
             });
         });
         
+        // 3. 敵の出現と移動
         if (gameState.enemies.length === 0) {
             serverSpawnEnemy(0);
         }
@@ -302,8 +300,10 @@ const Networking = {
             enemy.y += enemy.speed * (deltaTime / 16);
         });
         
+        // 4. 衝突判定
         serverCheckCollisions();
 
+        // 5. 敵の消失とプレイヤーへのダメージ
         gameState.enemies = gameState.enemies.filter(enemy => {
             if (enemy.y < GAME_HEIGHT + enemy.size / 2) {
                 return true;
@@ -319,11 +319,13 @@ const Networking = {
             }
         });
         
+        // 6. ゲームオーバー判定
         if (gameState.players.filter(p => p.health > 0).length === 0) {
             gameOver();
             return;
         }
 
+        // 7. 状態を全クライアントにブロードキャスト（シミュレーション）
         const stateToSend = {
              players: gameState.players.map(p => ({
                  id: p.id, x: p.x, health: p.health, score: p.score, 
@@ -331,7 +333,7 @@ const Networking = {
              })),
              enemies: gameState.enemies
         };
-        // 状態を全クライアントにブロードキャスト（シミュレーション）
+        // 全てのプレイヤーに状態を送ることで、リストが同期される
         gameState.players.forEach((p) => {
              Networking.receiveState(JSON.parse(JSON.stringify(stateToSend)));
         });
@@ -358,19 +360,28 @@ function serverApplyUpgrade(player, type) { /* ... */ }
 
 // --- クライアント側の処理 ---
 
-function draw() { /* ... 既存のロジック ... */
+function draw() { 
     CTX.fillStyle = '#000';
     CTX.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
-    // プレイヤーの描画
+    // プレイヤーの描画 (味方プレイヤーと自分の両方を描画)
     gameState.players.forEach(player => {
         if (player.health <= 0) return;
         CTX.fillStyle = player.color;
+        
+        // ★修正点: プレイヤーの位置として、サーバーからの最新の状態(player.x)を使用する
         CTX.fillRect(player.x - player.size / 2, player.y - player.size / 2, player.size, player.size);
+        
+        // プレイヤーIDの表示
+        CTX.fillStyle = 'white';
+        CTX.font = '10px Arial';
+        CTX.textAlign = 'center';
+        CTX.fillText(`P${player.id + 1}`, player.x, player.y + player.size + 5);
     });
 
-    // 弾丸の描画
+    // 弾丸の描画 (全てのプレイヤーの弾丸を描画)
     gameState.players.forEach(player => {
+        // ★修正点: player.bullets を直接使用し、サーバーから同期された弾丸を描画する
         player.bullets.forEach(bullet => {
             CTX.fillStyle = player.color; 
             CTX.beginPath();
@@ -391,9 +402,6 @@ function draw() { /* ... 既存のロジック ... */
     updateHUD();
 }
 
-/**
- * クライアント側でローカルプレイヤーの移動を予測する
- */
 function localUpdateMovement(deltaTime) {
     if (!gameRunning || isUpgrading) return;
     
@@ -407,7 +415,6 @@ function localUpdateMovement(deltaTime) {
 
     // タッチ入力による移動
     if (touchInput.isDown && touchInput.x !== null) {
-        // プレイヤーの予測位置とタッチ位置を比較して移動方向を決定
         if (touchInput.x < player.predictedX - player.size * 2) {
             movingLeft = true;
             movingRight = false;
@@ -459,7 +466,7 @@ function collectAndSendInput() {
 }
 
 
-function localGameTick(deltaTime) { /* ... 既存のロジック ... */
+function localGameTick(deltaTime) { 
     if (isMultiplayer || !gameRunning || isUpgrading) return;
     
     const player = gameState.players[0];
@@ -498,7 +505,7 @@ function localGameTick(deltaTime) { /* ... 既存のロジック ... */
 }
 
 
-// ... (updateHUD, gameOver, enterUpgradeScreen, applyUpgrade は省略) ...
+// --- HUD/画面管理関数 ---
 
 function updateHUD() {
     const container = document.getElementById('player-stats-container');
@@ -530,6 +537,8 @@ function updateHUD() {
              }
         }
     }
+    
+    document.getElementById('lobby-player-count').textContent = gameState.players.length; 
     
     const localPlayer = gameState.players.find(p => p.id === localPlayerId);
     if(localPlayer){
@@ -675,7 +684,6 @@ window.showLobby = function() {
     Networking.isConnected = false;
     Networking.isHost = false; 
 
-    // プレイヤーリストをリセットし、P1のみの初期状態に戻す
     gameState.players = [createPlayer(0, PLAYER_COLORS[0])];
     
     document.getElementById('lobby-screen').style.display = 'flex';
@@ -691,10 +699,6 @@ window.showLobby = function() {
     document.getElementById('lobby-message').textContent = 'モードを選択するか、パーティルームを作成してください。';
 };
 
-/**
- * ★修正: マルチプレイのルーム作成/参加ロジックを修正
- * シングルセッションのシミュレーション環境で、クライアントもプレイヤーリストに即座に追加されるようにします。
- */
 window.createOrJoinRoom = function(isHost) {
     const roomName = document.getElementById('room-name').value;
     if (!roomName) return;
@@ -702,26 +706,31 @@ window.createOrJoinRoom = function(isHost) {
     Networking.connect(isHost); 
     isMultiplayer = true;
     
-    // ホストが最初に部屋を作成する場合
+    // ホストとして作成する場合
     if (isHost) {
         localPlayerId = 0;
         gameState.players = [createPlayer(0, PLAYER_COLORS[0])];
         document.getElementById('start-multi-game-button').style.display = 'block';
         document.getElementById('lobby-message').textContent = `「${roomName}」を作成しました。あなたはホスト(P1)です。`;
     } 
-    // クライアントが部屋に参加する場合
+    // クライアントとして参加する場合
     else {
-        // 次の空きIDを取得 (シングルセッションシミュレーションのため、既存のプレイヤー数で判断)
+        // クライアントが参加する際、ホスト側のプレイヤーリストの最新の状態を取得し、自分のIDを決定するシミュレーションを行う。
         const currentMaxId = gameState.players.length > 0 ? gameState.players.reduce((max, p) => Math.max(max, p.id), -1) : -1;
         const newPlayerId = currentMaxId + 1;
         
         if (newPlayerId < PLAYER_COLORS.length) {
              localPlayerId = newPlayerId;
              
-             // クライアントも自身をプレイヤーリストに追加（シミュレーション）
+             // クライアントが参加した際、ホスト側のgameState.playersに新しいプレイヤーを**直接追加**するシミュレーションを行う
              const newPlayer = createPlayer(newPlayerId, PLAYER_COLORS[newPlayerId]);
+             
+             // クライアント側のリストに追加
              gameState.players.push(newPlayer);
              
+             // ホスト側のUIを更新するためにも、updateHUDを呼び出す
+             updateHUD(); 
+
              document.getElementById('start-multi-game-button').style.display = 'none'; 
              document.getElementById('lobby-message').textContent = 
                  `「${roomName}」に参加しました。あなたはクライアント(P${localPlayerId + 1})です。ホストのゲーム開始を待っています...`;
