@@ -20,16 +20,16 @@
             position: relative;
             margin-bottom: 20px;
             max-width: 600px; 
-            width: 90vw; 
+            width: 600px; /* PCでの幅を固定 */
             z-index: 5; 
             
-            /* ★修正点: アスペクト比を固定し、モバイルでエリアが崩れるのを防ぐ */
-            padding-top: calc(700 / 600 * 90vw); /* 600:700 のアスペクト比を維持 */
-            max-height: calc(600 / 600 * 700px); /* 縦幅の最大を700pxに制限 */
+            /* ★修正点: アスペクト比を固定するロジックを削除。高さを明示的に指定して歪みを防ぐ */
+            height: 700px; 
+            max-height: 700px; 
             box-sizing: border-box; 
         }
         #game-canvas {
-            /* ★修正点: 絶対配置に変更し、親要素#game-areaいっぱいに広げる */
+            /* ★修正点: 幅と高さを100%にし、親要素(600x700)に合わせる */
             position: absolute; 
             top: 0;
             left: 0;
@@ -39,9 +39,10 @@
             display: block;
             z-index: 10; 
         }
+        /* ... (HUD, ロビー, 強化画面, ゲームオーバー画面のスタイルは変更なし) ... */
         #hud {
             max-width: 600px; 
-            width: 90vw; 
+            width: 600px; /* PCでの幅を固定 */
             display: none; 
             flex-direction: column; 
             padding: 10px 0;
@@ -55,9 +56,7 @@
             padding-bottom: 3px;
         }
         
-        /* --- ロビー画面 --- */
         #lobby-screen {
-            /* ★修正点: 絶対配置で親#game-areaいっぱいに広げる */
             position: absolute;
             top: 0;
             left: 0;
@@ -92,9 +91,7 @@
              display: none; 
         }
 
-        /* --- 強化画面 --- */
         #upgrade-screen {
-            /* ★修正点: 絶対配置で親#game-areaいっぱいに広げる */
             position: absolute;
             top: 0;
             left: 0;
@@ -125,9 +122,7 @@
             background-color: #45a049;
         }
         
-        /* --- ゲームオーバー画面 --- */
         #game-over-screen {
-            /* ★修正点: 絶対配置で親#game-areaいっぱいに広げる */
             position: absolute;
             top: 0;
             left: 0;
