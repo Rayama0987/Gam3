@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>強化シューティングゲーム ロビー</title>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            background-color: #222;
+            color: #fff;
+            font-family: Arial, sans-serif;
+            margin: 0;
+            min-height: 100vh;
+        }
+        #game-area {
+            position: relative;
+            margin-bottom: 20px;
+            max-width: 600px; 
+            width: 90vw; 
+            z-index: 5; 
+        }
+        #game-canvas {
+            width: 100%;
+            height: auto; 
+            border: 2px solid #00ff00;
+            display: block;
+            position: relative;
+            z-index: 10; 
+        }
+        #hud {
+            max-width: 600px; 
+            width: 90vw; 
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            font-size: 1.2em;
+        }
+        
+        /* ロビー画面のスタイル */
+        #lobby-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.95); 
+            color: #fff;
+            display: none; 
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            box-sizing: border-box;
+            text-align: center;
+            z-index: 40; 
+        }
+
+        #lobby-screen h2 {
+            font-size: 2.5em; 
+            color: #00ff00; 
+            margin-bottom: 30px;
+            text-shadow: 0 0 10px rgba(0, 255, 0, 0.5);
+        }
+
+        .lobby-input {
+            padding: 10px;
+            margin-bottom: 15px;
+            border: 2px solid #00bcd4;
+            border-radius: 5px;
+            width: 70%;
+            max-width: 300px;
+            background-color: #333;
+            color: #fff;
+            font-size: 1.1em;
+            text-align: center;
+        }
+
+        .lobby-button-group {
+            margin: 15px 0;
+        }
+        
+        .lobby-divider {
+            width: 80%;
+            margin: 25px 0;
+            border: 0;
+            border-top: 1px solid #555;
+        }
+
+        #lobby-message {
+            margin-top: 15px;
+            font-size: 1.1em;
+            color: #ffeb3b;
+        }
+
+        #lobby-player-count-area {
+            margin-top: 15px;
+            font-size: 1.1em;
+        }
+        /* ロビー画面のスタイルここまで */
+
+        #upgrade-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.9);
+            color: #fff;
+            display: none; 
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            box-sizing: border-box;
+            text-align: center;
+            z-index: 20; 
+        }
+        .upgrade-button {
+            padding: 10px 20px;
+            margin: 8px; 
+            font-size: 1.1em;
+            cursor: pointer;
+            background-color: #4CAF50;
+            border: none;
+            border-radius: 5px;
+            transition: background-color 0.3s;
+        }
+        .upgrade-button:hover {
+            background-color: #45a049;
+        }
+        #game-over-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(150, 0, 0, 0.8);
+            color: #fff;
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            font-size: 2em;
+            z-index: 30; 
+        }
+    </style>
+</head>
+<body>
+    <div id="game-area">
+        <div id="lobby-screen">
+            <h2>ロビー</h2>
+            
+            <button class="upgrade-button" onclick="window.startSinglePlayer()">シングルプレイ開始</button>
+            
+            <div class="lobby-divider"></div>
+            
+            <h3>パーティルームに参加 / 作成</h3>
+            <input type="text" id="room-name" class="lobby-input" placeholder="部屋名を入力">
+            <div class="lobby-button-group">
+                <button class="upgrade-button" style="background-color: #3f51b5;" onclick="window.createOrJoinRoom(true)">ルーム作成 (ホスト)</button>
+                <button class="upgrade-button" style="background-color: #00bcd4;" onclick="window.createOrJoinRoom(false)">ルーム参加</button>
+            </div>
+            <p id="lobby-message">モードを選択するか、パーティルームを作成してください。</p>
+            <p id="lobby-player-count-area">現在の参加プレイヤー数: <span id="lobby-player-count">1</span></p>
+            <button id="start-multi-game-button" class="upgrade-button" style="background-color: #ff9800; margin-top: 20px; display: none;" onclick="window.startGame()">マルチプレイ開始</button>
+        </div>
+
+        <canvas id="game-canvas" width="600" height="700"></canvas>
+        
+        <div id="upgrade-screen">
+            <h2>✨ 強化タイム ✨</h2>
+            <p>現在のスコア: <span id="upgrade-score">0</span></p>
+            <p>強化コスト: **10 スコア**</p>
+            <p>アップグレードを選択してください:</p>
+
+            <div id="upgrade-buttons-container">
+                <button class="upgrade-button" onclick="applyUpgrade('damage')">
+                    ダメージアップ (現在のLv: 1)
+                </button>
+                <button class="upgrade-button" onclick="applyUpgrade('speed')">
+                    弾丸速度上昇 (現在のLv: 1)
+                </button>
+                <button class="upgrade-button" onclick="applyUpgrade('radius')">
+                    当たり判定拡大 (現在のLv: 1)
+                </button>
+                <br>
+                <button class="upgrade-button" onclick="applyUpgrade('fireRate')">
+                    連射速度上昇 (現在のLv: 1)
+                </button>
+                <button class="upgrade-button" onclick="applyUpgrade('bulletCount')">
+                    一発の弾数上昇 (現在のLv: 1)
+                </button>
+                <button class="upgrade-button" onclick="applyUpgrade('bounce')">
+                    バウンド確率上昇 (現在のLv: 0)
+                </button>
+                <br>
+                <button class="upgrade-button" onclick="applyUpgrade('autoAim')">
+                    オートエイム (現在のLv: 0)
+                </button>
+            </div>
+            
+            <p id="upgrade-message" style="margin-top: 20px; color: yellow;"></p>
+        </div>
+
+        <div id="game-over-screen">
+            ゲームオーバー！
+            <p style="font-size: 0.5em;">最終スコア: <span id="final-score">0</span></p>
+            <button onclick="window.showLobby()" class="upgrade-button">ロビーに戻る</button>
+        </div>
+    </div>
+
+    <div id="hud">
+        <div id="player-stats-container">
+            </div>
+    </div>
+
+    <script src="script.js"></script> </body>
+</html>
