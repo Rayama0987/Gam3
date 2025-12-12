@@ -67,7 +67,7 @@ window.onYouTubeIframeAPIReady = function() {
             'fs': 0,
             'iv_load_policy': 3,
             'modestbranding': 1,
-            'loop': 1, // APIによるループ設定
+            'loop': 1, 
             'playlist': '' 
         },
         events: {
@@ -81,12 +81,11 @@ function onPlayerReady(event) {
     console.log("YouTube Player is ready.");
     const statusElement = document.getElementById('music-status');
     if (currentVideoId) {
-        // ロード時にプレイリストを設定し、APIによるループを有効化
         event.target.cueVideoById({
              videoId: currentVideoId,
              playlist: currentVideoId
         });
-        statusElement.textContent = 'ステータス: ロード完了。ゲーム開始で再生されます。';
+        if (statusElement) statusElement.textContent = 'ステータス: ロード完了。ゲーム開始で再生されます。';
     } else if (statusElement) {
         statusElement.textContent = 'ステータス: 準備完了。URLを入力してください。';
     }
@@ -104,16 +103,14 @@ function onPlayerStateChange(event) {
             statusElement.textContent = 'ステータス: 一時停止';
             break;
         
-        // ★★★ ループ再生の修正箇所: 動画終了時 ★★★
+        // ループ再生の修正: 動画終了時、ゲーム中なら手動でループさせる
         case YT.PlayerState.ENDED:
             statusElement.textContent = 'ステータス: 終了 (ループ再生します)';
-            // ゲームが実行中であれば、動画を最初からシークして手動で再生し直す
             if (gameRunning && ytPlayer && ytPlayer.seekTo) {
                  ytPlayer.seekTo(0); 
                  ytPlayer.playVideo(); 
             }
             break;
-        // ★★★ 修正箇所ここまで ★★★
 
         case YT.PlayerState.BUFFERING:
             statusElement.textContent = 'ステータス: ロード中...';
@@ -448,21 +445,25 @@ function collectInputState() {
 function updateHUD() {
     document.getElementById('health-display').textContent = playerHealth;
     document.getElementById('score-display').textContent = Math.floor(score);
-    document.getElementById('upgrade-score').textContent = Math.floor(score);
     
-    // 強化レベルの更新
-    const updateLevel = (id, level) => {
-        const el = document.getElementById(id);
-        if (el) el.textContent = level;
-    };
-    
-    updateLevel('lv-fireRate', UPGRADES.fireRate.level);
-    updateLevel('lv-bulletCount', UPGRADES.bulletCount.level);
-    updateLevel('lv-bounce', UPGRADES.bounce.level);
-    updateLevel('lv-damage', UPGRADES.damage.level);
-    updateLevel('lv-speed', UPGRADES.speed.level);
-    updateLevel('lv-radius', UPGRADES.radius.level);
-    updateLevel('lv-autoAim', UPGRADES.autoAim.level); 
+    // 強化画面が非表示の時は下の要素は更新しない (エラー防止)
+    if (isUpgrading || document.getElementById('upgrade-screen').style.display === 'flex') {
+        document.getElementById('upgrade-score').textContent = Math.floor(score);
+        
+        // 強化レベルの更新
+        const updateLevel = (id, level) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = level;
+        };
+        
+        updateLevel('lv-fireRate', UPGRADES.fireRate.level);
+        updateLevel('lv-bulletCount', UPGRADES.bulletCount.level);
+        updateLevel('lv-bounce', UPGRADES.bounce.level);
+        updateLevel('lv-damage', UPGRADES.damage.level);
+        updateLevel('lv-speed', UPGRADES.speed.level);
+        updateLevel('lv-radius', UPGRADES.radius.level);
+        updateLevel('lv-autoAim', UPGRADES.autoAim.level); 
+    }
     
     // ロードボタンの表示制御
     const hasSaveData = localStorage.getItem('shooterGameSave') !== null;
@@ -527,7 +528,8 @@ window.startGame = function(load = false) {
     // 音楽の再生 (ユーザー操作によって再生開始)
     if (ytPlayer && currentVideoId) {
         if (ytPlayer.getPlayerState() !== YT.PlayerState.PLAYING) {
-             ytPlayer.setVolume(20); 
+             // 音量を小さめに設定
+             if (ytPlayer.setVolume) ytPlayer.setVolume(20); 
              ytPlayer.playVideo();
         }
     }
@@ -601,7 +603,7 @@ window.showLobby = function() {
     document.getElementById('upgrade-screen').style.display = 'none';
     document.getElementById('hud').style.display = 'none';
 
-    updateHUD(); // ロードボタンの表示を更新
+    updateHUD(); 
 };
 
 
