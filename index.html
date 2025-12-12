@@ -22,20 +22,28 @@
             max-width: 600px; 
             width: 90vw; 
             z-index: 5; 
+            
+            /* ★修正点: アスペクト比を固定し、モバイルでエリアが崩れるのを防ぐ */
+            padding-top: calc(700 / 600 * 90vw); /* 600:700 のアスペクト比を維持 */
+            max-height: calc(600 / 600 * 700px); /* 縦幅の最大を700pxに制限 */
+            box-sizing: border-box; 
         }
         #game-canvas {
+            /* ★修正点: 絶対配置に変更し、親要素#game-areaいっぱいに広げる */
+            position: absolute; 
+            top: 0;
+            left: 0;
             width: 100%;
-            height: auto; 
+            height: 100%; 
             border: 2px solid #00ff00;
             display: block;
-            position: relative;
             z-index: 10; 
         }
         #hud {
             max-width: 600px; 
             width: 90vw; 
-            display: none; /* 初期状態では非表示 */
-            flex-direction: column; /* プレイヤー情報を縦に並べる */
+            display: none; 
+            flex-direction: column; 
             padding: 10px 0;
             font-size: 1.2em;
         }
@@ -49,6 +57,7 @@
         
         /* --- ロビー画面 --- */
         #lobby-screen {
+            /* ★修正点: 絶対配置で親#game-areaいっぱいに広げる */
             position: absolute;
             top: 0;
             left: 0;
@@ -65,7 +74,7 @@
             text-align: center;
             z-index: 50; 
         }
-        #room-controls button, #mode-selection button {
+        #mode-selection button, #room-controls button {
              padding: 15px 30px;
              margin: 10px;
              font-size: 1.2em;
@@ -75,17 +84,17 @@
              border: none;
              border-radius: 8px;
         }
-        #room-controls button:hover, #mode-selection button:hover {
+        #mode-selection button:hover, #room-controls button:hover {
             background-color: #0056b3;
         }
         #start-multi-game-button {
              background-color: #28a745;
-             display: none; /* ホストにのみ表示 */
+             display: none; 
         }
 
         /* --- 強化画面 --- */
         #upgrade-screen {
-            /* スタイルはほぼ維持 */
+            /* ★修正点: 絶対配置で親#game-areaいっぱいに広げる */
             position: absolute;
             top: 0;
             left: 0;
@@ -118,6 +127,7 @@
         
         /* --- ゲームオーバー画面 --- */
         #game-over-screen {
+            /* ★修正点: 絶対配置で親#game-areaいっぱいに広げる */
             position: absolute;
             top: 0;
             left: 0;
@@ -143,7 +153,8 @@
             <div id="mode-selection">
                 <p>現在の参加人数: <span id="lobby-player-count">1</span></p>
                 <p id="lobby-message" style="color: yellow;"></p>
-                <button onclick="startSinglePlayer()">シングルプレイ開始</button>
+                <button onclick="window.startSinglePlayer(false)">新規シングルプレイ開始</button>
+                <button id="load-game-button" onclick="window.startSinglePlayer(true)" style="display:none; background-color: #ff9800;">続きから (ロード)</button>
             </div>
             
             <hr style="width: 80%; margin: 20px 0;">
@@ -152,10 +163,10 @@
             <div id="room-controls">
                 <input type="text" id="room-name" placeholder="ルーム名を入力" value="CoopRoom1" style="padding: 10px; margin-bottom: 10px; width: 200px;">
                 <br>
-                <button onclick="createOrJoinRoom(true)">ルーム作成 (ホスト)</button>
-                <button onclick="createOrJoinRoom(false)">ルーム参加 (クライアント)</button>
+                <button onclick="window.createOrJoinRoom(true)">ルーム作成 (ホスト)</button>
+                <button onclick="window.createOrJoinRoom(false)">ルーム参加 (クライアント)</button>
             </div>
-            <button id="start-multi-game-button" onclick="startGame()">ゲーム開始</button>
+            <button id="start-multi-game-button" onclick="window.startGame()">ゲーム開始</button>
         </div>
         
         <div id="upgrade-screen">
@@ -172,13 +183,16 @@
         <div id="game-over-screen">
             ゲームオーバー！
             <p style="font-size: 0.5em;">最終スコア: <span id="final-score">0</span></p>
-            <button onclick="window.location.reload()" class="upgrade-button">ロビーに戻る</button>
+            <button onclick="window.showLobby()" class="upgrade-button">ロビーに戻る</button>
         </div>
     </div>
 
     <div id="hud">
         <div id="player-stats-container">
             </div>
+        <button onclick="window.exitGame()" style="background-color: #f44336; color: white; padding: 10px 20px; border: none; border-radius: 5px; margin-top: 10px; cursor: pointer;">
+            ゲーム終了 (ロビーへ)
+        </button>
     </div>
 
     <script src="script.js"></script>
